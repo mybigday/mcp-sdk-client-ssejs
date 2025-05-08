@@ -1,0 +1,103 @@
+# MCP SDK Client SSE.js
+
+[![Actions Status](https://github.com/mybigday/mcp-sdk-client-ssejs/workflows/CI/badge.svg)](https://github.com/mybigday/mcp-sdk-client-ssejs/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![npm](https://img.shields.io/npm/v/mcp-sdk-client-ssejs.svg)](https://www.npmjs.com/package/mcp-sdk-client-ssejs/)
+
+Alternative [@modelcontextprotocol/sdk/client](https://www.npmjs.com/package/@modelcontextprotocol/sdk#writing-mcp-clients) base on [sse.js](https://www.npmjs.com/package/sse.js). The main purpose is make it working on React Native with [llama.rn](https://github.com/mybigday/llama.rn).
+
+## Installation
+
+```bash
+npm install mcp-sdk-client-ssejs
+```
+
+## Usage
+
+The usage is the most same as the original [@modelcontextprotocol/sdk/client](https://github.com/modelcontextprotocol/typescript-sdk?tab=readme-ov-file#writing-mcp-clients), but you need to use `SSEJSClientTransport` instead of `StdioClientTransport` or `SSEClientTransport`. (There are no STDIO support in this package.)
+
+```ts
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { SSEJSClientTransport } from 'mcp-sdk-client-ssejs'
+
+const transport = new SSEJSClientTransport({
+  url: 'http://<your-mcp-server-sse-endpoint-url>',
+})
+
+const client = new Client({
+  name: 'example-client',
+  version: '1.0.0',
+})
+
+await client.connect(transport)
+
+// List prompts
+const prompts = await client.listPrompts()
+
+// Get a prompt
+const prompt = await client.getPrompt({
+  name: 'example-prompt',
+  arguments: {
+    arg1: 'value',
+  },
+})
+
+// List resources
+const resources = await client.listResources()
+
+// Read a resource
+const resource = await client.readResource({
+  uri: 'file:///example.txt',
+})
+
+// Call a tool
+const result = await client.callTool({
+  name: 'example-tool',
+  arguments: {
+    arg1: 'value',
+  },
+})
+```
+
+## Use fetch / URL as optional parameters
+
+The SSEJSClientTransport constructor accept `URL` and `fetch` options.
+
+```js
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { SSEJSClientTransport } from 'mcp-sdk-client-ssejs'
+
+// Example: Use whatwg-url-without-unicode
+import { URL } from 'whatwg-url-without-unicode'
+
+const transport = new SSEJSClientTransport({
+  url: 'http://<your-mcp-server-sse-endpoint-url>',
+  URL,
+  // Example: Custom fetch implementation
+  fetch: (...args) => fetch(...args),
+})
+```
+
+## Use cases
+
+- [BRICKS](https://bricks.tools) - Our product for building interactive signage in simple way. We provide AI functions as Generator LLM/Assistant/MCP/MCPServer.
+  - The Generator MCP (Client) is based on this package.
+
+## License
+
+MIT
+
+---
+
+Made with [create-react-native-library](https://github.com/callstack/react-native-builder-bob)
+
+---
+
+<p align="center">
+  <a href="https://bricks.tools">
+    <img width="90px" src="https://avatars.githubusercontent.com/u/17320237?s=200&v=4">
+  </a>
+  <p align="center">
+    Built and maintained by <a href="https://bricks.tools">BRICKS</a>.
+  </p>
+</p>
