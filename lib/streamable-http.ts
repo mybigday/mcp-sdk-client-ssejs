@@ -94,7 +94,7 @@ export interface SseErrorEvent {
 /**
  * Configuration options for the `SSEJSStreamableHTTPClientTransport`.
  */
-export type SSEJSStreamableHTTPClientTransportOptions = {
+export interface SSEJSStreamableHTTPClientTransportOptions {
   /**
    * An OAuth client provider to use for authentication.
    *
@@ -112,6 +112,18 @@ export type SSEJSStreamableHTTPClientTransportOptions = {
   authProvider?: OAuthClientProvider
 
   /**
+   * Custom implementation of the fetch API to use for HTTP requests.
+   * This allows using a custom fetch implementation in environments where the global fetch is not available or needs to be customized.
+   */
+  fetch?: typeof globalThis.fetch
+
+  /**
+   * Custom implementation of URL to use.
+   * This allows using a custom URL implementation in environments where the global URL is not available or needs to be customized.
+   */
+  URL?: typeof globalThis.URL | any
+
+  /**
    * Customizes HTTP requests to the server.
    */
   requestInit?: RequestInit
@@ -126,6 +138,11 @@ export type SSEJSStreamableHTTPClientTransportOptions = {
    * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
    */
   sessionId?: string
+
+  /**
+   * EventSource initialization options.
+   */
+  eventSourceInit?: Record<string, any>
 }
 
 /**
@@ -145,6 +162,9 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   private _lastEventId?: string
   private _onresumptiontoken?: (token: string) => void
   private _replayMessageId?: string | number
+  private _fetch: typeof globalThis.fetch
+  private _URL: typeof globalThis.URL | any
+  private _eventSourceInit?: Record<string, any>
 
   onclose?: () => void
   onerror?: (error: Error) => void
@@ -157,6 +177,9 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     this._sessionId = opts?.sessionId
     this._reconnectionOptions =
       opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS
+    this._fetch = opts?.fetch || globalThis.fetch
+    this._URL = opts?.URL || globalThis.URL
+    this._eventSourceInit = opts?.eventSourceInit
   }
 
   private async _authThenStart(): Promise<void> {
@@ -214,10 +237,12 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
       this._commonHeaders()
         .then((headers) => {
           // Create options for SSE connection
-          const sseOptions: { headers: Record<string, string> } = {
+          const sseOptions = {
+            ...this._eventSourceInit,
             headers: {
               ...headers,
               Accept: 'text/event-stream',
+              ...(this._eventSourceInit?.headers || {}),
             },
           }
 
@@ -463,7 +488,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       }
 
-      const response = await fetch(this._url, init)
+      const response = await this._fetch(this._url, init)
 
       // Handle session ID received during initialization
       const sessionId = response.headers.get('mcp-session-id')
@@ -513,12 +538,15 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
       if (hasRequests) {
         if (contentType?.includes('text/event-stream')) {
-          // Use SSE.js instead of manual fetch handling for SSE responses
-          const sseResponse = new SSE('', {
+          // Use SSE.js for streaming responses instead of fetch
+          const sseOptions = {
             headers: headers,
             method: 'POST',
             payload: JSON.stringify(message),
-          })
+          }
+          
+          // Create a new SSE connection directly for the streaming response
+          const sseResponse = new SSE(this._url.href, sseOptions)
 
           sseResponse.addEventListener(
             'message',
@@ -527,7 +555,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
                 const parsed = JSON.parse(event.data)
                 const message = JSONRPCMessageSchema.parse(parsed)
                 this.onmessage?.(message)
-
+                
                 // Update last event ID if present and call callback
                 if (event.lastEventId) {
                   this._lastEventId = event.lastEventId
@@ -585,7 +613,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       }
 
-      const response = await fetch(this._url, init)
+      const response = await this._fetch(this._url, init)
 
       // We specifically handle 405 as a valid response according to the spec,
       // meaning the server does not support explicit session termination
