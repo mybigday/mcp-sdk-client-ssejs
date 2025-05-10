@@ -152,6 +152,7 @@ export interface SSEJSStreamableHTTPClientTransportOptions {
  */
 export class SSEJSStreamableHTTPClientTransport implements Transport {
   private _sseConnection: SSE | null = null
+  private _sseResponse: SSE | null = null
   private _abortController?: AbortController
   private _url: URL
   private _requestInit?: RequestInit
@@ -161,11 +162,11 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   private _fetch: typeof globalThis.fetch
   private _URL: typeof globalThis.URL | any
   private _eventSourceInit?: Record<string, any>
-  private _lastEventId?: string
 
   onclose?: () => void
   onerror?: (error: Error) => void
   onmessage?: (message: JSONRPCMessage) => void
+  onsseclose?: () => void
 
   constructor(url: URL, opts?: SSEJSStreamableHTTPClientTransportOptions) {
     this._url = url
@@ -222,12 +223,9 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     // Schedule the reconnection
     setTimeout(() => {
       // Use the last event ID to resume where we left off
-      this._startOrAuthSse(
-        options,
-        () => {
-          this._scheduleReconnection(options, attemptCount + 1)
-        }
-      ).catch((error) => {
+      this._startOrAuthSse(options, () => {
+        this._scheduleReconnection(options, attemptCount + 1)
+      }).catch((error) => {
         if (this.onerror) this.onerror(error as Error)
       })
     }, delay)
@@ -323,7 +321,10 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
       if (!started) {
         onContinueRetry?.()
-      } else if (this._abortController && !this._abortController.signal.aborted) {
+      } else if (
+        this._abortController &&
+        !this._abortController.signal.aborted
+      ) {
         if (lastEventId) {
           try {
             this._scheduleReconnection(
@@ -346,6 +347,10 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         }
       }
     }
+
+    this._sseConnection.onreadystatechange = (event) => {
+      if (event.readyState === 2) this.onsseclose?.()
+    };
 
     // Handle JSON-RPC messages
     this._sseConnection.addEventListener(
@@ -415,6 +420,11 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
       this._sseConnection = null
     }
 
+    if (this._sseResponse) {
+      this._sseResponse.close()
+      this._sseResponse = null
+    }
+
     this.onclose?.()
   }
 
@@ -440,29 +450,32 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
       // Get original message(s) for detecting request IDs
       const messages = Array.isArray(message) ? message : [message]
-      const hasRequests = messages.some((msg) => isJSONRPCRequest(msg))
+      const hasRequests =
+        messages.filter(
+          (msg) => 'method' in msg && 'id' in msg && msg.id !== undefined,
+        ).length > 0
+
+      // Use SSE for any request expecting a streaming response
+      const sseOptions = {
+        useLastEventId: true,
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+        },
+        method: 'POST',
+        payload: JSON.stringify(message),
+        start: false,
+      }
+
+      // Create a new SSE connection for the request
+      this._sseResponse = new SSE(this._url.href, sseOptions)
+
+      let lastEventId: string | undefined
 
       if (hasRequests) {
-        // Use SSE for any request expecting a streaming response
-        const sseOptions = {
-          useLastEventId: true,
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json',
-            Accept: 'application/json, text/event-stream',
-          },
-          method: 'POST',
-          payload: JSON.stringify(message),
-          start: false,
-        }
-
-        // Create a new SSE connection for the request
-        const sseResponse = new SSE(this._url.href, sseOptions)
-
-        let lastEventId: string | undefined
-
         // Handle errors
-        sseResponse.onerror = (event: SseErrorEvent) => {
+        this._sseResponse.onerror = (event: SseErrorEvent) => {
           // Check for auth errors (401)
           if (event.status === 401 && this._authProvider) {
             this._authThenStart().then(
@@ -503,7 +516,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         }
 
         // Process message events
-        sseResponse.addEventListener(
+        this._sseResponse.addEventListener(
           'message',
           (event: { data: string; id?: string }) => {
             try {
@@ -521,29 +534,30 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
             }
           },
         )
-
-        // Extract session ID from headers, if available
-        sseResponse.addEventListener('open', (event: any) => {
-          // If target with headers exists (specific to SSE.js implementation)
-          const { xhr } = event.source
-          if (xhr?.responseHeaders) {
-            const sessionId = xhr.responseHeaders['mcp-session-id']
-            if (sessionId) {
-              this._sessionId = sessionId
-            }
-
-            // If the initialized notification was accepted, start the SSE stream
-            if (xhr?.responseCode === 202) {
-              this._startOrAuthSse({
-                resumptionToken: undefined,
-                onresumptiontoken,
-              }).catch((err) => this.onerror?.(err))
-            }
-          }
-        })
-
-        sseResponse.stream()
       }
+
+      // Extract session ID from headers, if available
+      this._sseResponse.addEventListener('open', (event: any) => {
+        // If target with headers exists (specific to SSE.js implementation)
+        const { xhr } = event.source
+        if (xhr?.responseHeaders) {
+          const sessionId = xhr.responseHeaders['mcp-session-id']
+          if (sessionId) {
+            this._sessionId = sessionId
+          }
+        }
+        // If the initialized notification was accepted, start the SSE stream
+        if (xhr?.status === 202) {
+          if (isInitializedNotification(message)) {
+            this._startOrAuthSse({
+              resumptionToken: undefined,
+              onresumptiontoken,
+            }).catch((err) => this.onerror?.(err))
+          }
+        }
+      })
+
+      this._sseResponse.stream()
     } catch (error) {
       this.onerror?.(error as Error)
       throw error
@@ -558,9 +572,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
    * Terminates the current session by sending a DELETE request to the server.
    */
   async terminateSession(): Promise<void> {
-    if (!this.sessionId) {
-      return // No session to terminate
-    }
+    if (!this.sessionId) return // No session to terminate
 
     try {
       const headers = await this._commonHeaders()
