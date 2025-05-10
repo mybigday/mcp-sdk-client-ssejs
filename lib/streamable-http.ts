@@ -14,6 +14,15 @@ import {
   UnauthorizedError,
 } from '@modelcontextprotocol/sdk/client/auth.js'
 
+// Default reconnection options for StreamableHTTP connections
+const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions =
+  {
+    initialReconnectionDelay: 1000,
+    maxReconnectionDelay: 30000,
+    reconnectionDelayGrowFactor: 1.5,
+    maxRetries: 2,
+  }
+
 export class StreamableHTTPError extends Error {
   constructor(
     public readonly code: number | undefined,
@@ -46,6 +55,35 @@ interface StartSSEOptions {
    * so that response can be associate with the new resumed request.
    */
   replayMessageId?: string | number
+}
+
+/**
+ * Configuration options for reconnection behavior of the SSEJSStreamableHTTPClientTransport.
+ */
+export interface StreamableHTTPReconnectionOptions {
+  /**
+   * Maximum backoff time between reconnection attempts in milliseconds.
+   * Default is 30000 (30 seconds).
+   */
+  maxReconnectionDelay: number
+
+  /**
+   * Initial backoff time between reconnection attempts in milliseconds.
+   * Default is 1000 (1 second).
+   */
+  initialReconnectionDelay: number
+
+  /**
+   * The factor by which the reconnection delay increases after each attempt.
+   * Default is 1.5.
+   */
+  reconnectionDelayGrowFactor: number
+
+  /**
+   * Maximum number of reconnection attempts before giving up.
+   * Default is 2.
+   */
+  maxRetries: number
 }
 
 export interface SseErrorEvent {
@@ -91,6 +129,11 @@ export interface SSEJSStreamableHTTPClientTransportOptions {
   requestInit?: RequestInit
 
   /**
+   * Options to configure the reconnection behavior.
+   */
+  reconnectionOptions?: StreamableHTTPReconnectionOptions
+
+  /**
    * Session ID for the connection. This is used to identify the session on the server.
    * When not provided and connecting to a server that supports session IDs, the server will generate a new session ID.
    */
@@ -114,9 +157,11 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   private _requestInit?: RequestInit
   private _authProvider?: OAuthClientProvider
   private _sessionId?: string
+  private _reconnectionOptions: StreamableHTTPReconnectionOptions
   private _fetch: typeof globalThis.fetch
   private _URL: typeof globalThis.URL | any
   private _eventSourceInit?: Record<string, any>
+  private _lastEventId?: string
 
   onclose?: () => void
   onerror?: (error: Error) => void
@@ -127,9 +172,65 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     this._requestInit = opts?.requestInit
     this._authProvider = opts?.authProvider
     this._sessionId = opts?.sessionId
+    this._reconnectionOptions =
+      opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS
     this._fetch = opts?.fetch || globalThis.fetch
     this._URL = opts?.URL || globalThis.URL
     this._eventSourceInit = opts?.eventSourceInit
+  }
+
+  /**
+   * Calculates the next reconnection delay using  backoff algorithm
+   *
+   * @param attempt Current reconnection attempt count for the specific stream
+   * @returns Time to wait in milliseconds before next reconnection attempt
+   */
+  private _getNextReconnectionDelay(attempt: number): number {
+    // Access default values directly, ensuring they're never undefined
+    const initialDelay = this._reconnectionOptions.initialReconnectionDelay
+    const growFactor = this._reconnectionOptions.reconnectionDelayGrowFactor
+    const maxDelay = this._reconnectionOptions.maxReconnectionDelay
+
+    // Cap at maximum delay
+    return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay)
+  }
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff
+   *
+   * @param lastEventId The ID of the last received event for resumability
+   * @param attemptCount Current reconnection attempt count for this specific stream
+   */
+  private _scheduleReconnection(
+    options: StartSSEOptions,
+    attemptCount = 0,
+  ): void {
+    // Use provided options or default options
+    const maxRetries = this._reconnectionOptions.maxRetries
+
+    // Check if we've exceeded maximum retry attempts
+    if (maxRetries > 0 && attemptCount >= maxRetries) {
+      this.onerror?.(
+        new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`),
+      )
+      return
+    }
+
+    // Calculate next delay based on current attempt count
+    const delay = this._getNextReconnectionDelay(attemptCount)
+
+    // Schedule the reconnection
+    setTimeout(() => {
+      // Use the last event ID to resume where we left off
+      this._startOrAuthSse(
+        options,
+        () => {
+          this._scheduleReconnection(options, attemptCount + 1)
+        }
+      ).catch((error) => {
+        if (this.onerror) this.onerror(error as Error)
+      })
+    }, delay)
   }
 
   private async _authThenStart(): Promise<void> {
@@ -171,7 +272,10 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     }
   }
 
-  private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {
+  private async _startOrAuthSse(
+    options: StartSSEOptions,
+    onContinueRetry?: () => void,
+  ): Promise<void> {
     const { resumptionToken, onresumptiontoken, replayMessageId } = options
 
     const headers = await this._commonHeaders()
@@ -197,6 +301,9 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     // Create the SSE connection
     this._sseConnection = new SSE(this._url.href, sseOptions)
 
+    let started = false
+    let lastEventId: string | undefined
+
     // Handle errors
     this._sseConnection.onerror = (event: SseErrorEvent) => {
       // Check for auth errors (401)
@@ -214,9 +321,29 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
       this.onerror?.(error)
 
-      if (this._sseConnection) {
-        this._sseConnection.close()
-        this._sseConnection = null
+      if (!started) {
+        onContinueRetry?.()
+      } else if (this._abortController && !this._abortController.signal.aborted) {
+        if (lastEventId) {
+          try {
+            this._scheduleReconnection(
+              {
+                resumptionToken: lastEventId,
+                onresumptiontoken,
+                replayMessageId: replayMessageId,
+              },
+              0,
+            )
+          } catch (error) {
+            this.onerror?.(
+              new Error(
+                `Failed to reconnect: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              ),
+            )
+          }
+        }
       }
     }
 
@@ -224,6 +351,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     this._sseConnection.addEventListener(
       'message',
       (event: { data: string; id?: string }) => {
+        started = true
         try {
           const parsed = JSON.parse(event.data)
           const message = JSONRPCMessageSchema.parse(parsed)
@@ -240,6 +368,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
         // Update last event ID if present and call callback
         if (event.id) {
+          lastEventId = event.id
           if (onresumptiontoken) onresumptiontoken(event.id)
         }
       },
@@ -330,6 +459,8 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         // Create a new SSE connection for the request
         const sseResponse = new SSE(this._url.href, sseOptions)
 
+        let lastEventId: string | undefined
+
         // Handle errors
         sseResponse.onerror = (event: SseErrorEvent) => {
           // Check for auth errors (401)
@@ -346,6 +477,29 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
           const error = new StreamableHTTPError(event.status, event.data)
           this.onerror?.(error)
+
+          if (this._abortController && !this._abortController.signal.aborted) {
+            if (lastEventId) {
+              try {
+                this._scheduleReconnection(
+                  {
+                    resumptionToken: lastEventId,
+                    onresumptiontoken,
+                    replayMessageId: replayMessageId,
+                  },
+                  0,
+                )
+              } catch (error) {
+                this.onerror?.(
+                  new Error(
+                    `Failed to reconnect: ${
+                      error instanceof Error ? error.message : String(error)
+                    }`,
+                  ),
+                )
+              }
+            }
+          }
         }
 
         // Process message events
@@ -362,6 +516,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
             // Update last event ID if present and call callback
             if (event.id) {
+              lastEventId = event.id
               if (onresumptiontoken) onresumptiontoken(event.id)
             }
           },
