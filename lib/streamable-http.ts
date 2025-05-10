@@ -14,15 +14,6 @@ import {
   UnauthorizedError,
 } from '@modelcontextprotocol/sdk/client/auth.js'
 
-// Default reconnection options for StreamableHTTP connections
-const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions =
-  {
-    initialReconnectionDelay: 1000,
-    maxReconnectionDelay: 30000,
-    reconnectionDelayGrowFactor: 1.5,
-    maxRetries: 2,
-  }
-
 export class StreamableHTTPError extends Error {
   constructor(
     public readonly code: number | undefined,
@@ -55,35 +46,6 @@ interface StartSSEOptions {
    * so that response can be associate with the new resumed request.
    */
   replayMessageId?: string | number
-}
-
-/**
- * Configuration options for reconnection behavior of the SSEJSStreamableHTTPClientTransport.
- */
-export interface StreamableHTTPReconnectionOptions {
-  /**
-   * Maximum backoff time between reconnection attempts in milliseconds.
-   * Default is 30000 (30 seconds).
-   */
-  maxReconnectionDelay: number
-
-  /**
-   * Initial backoff time between reconnection attempts in milliseconds.
-   * Default is 1000 (1 second).
-   */
-  initialReconnectionDelay: number
-
-  /**
-   * The factor by which the reconnection delay increases after each attempt.
-   * Default is 1.5.
-   */
-  reconnectionDelayGrowFactor: number
-
-  /**
-   * Maximum number of reconnection attempts before giving up.
-   * Default is 2.
-   */
-  maxRetries: number
 }
 
 export interface SseErrorEvent {
@@ -152,9 +114,6 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   private _requestInit?: RequestInit
   private _authProvider?: OAuthClientProvider
   private _sessionId?: string
-  private _lastEventId?: string
-  private _onresumptiontoken?: (token: string) => void
-  private _replayMessageId?: string | number
   private _fetch: typeof globalThis.fetch
   private _URL: typeof globalThis.URL | any
   private _eventSourceInit?: Record<string, any>
@@ -162,7 +121,6 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   onclose?: () => void
   onerror?: (error: Error) => void
   onmessage?: (message: JSONRPCMessage) => void
-  onsseclose: (() => void) | null
 
   constructor(url: URL, opts?: SSEJSStreamableHTTPClientTransportOptions) {
     this._url = url
@@ -172,8 +130,6 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     this._fetch = opts?.fetch || globalThis.fetch
     this._URL = opts?.URL || globalThis.URL
     this._eventSourceInit = opts?.eventSourceInit
-
-    this.onsseclose = null
   }
 
   private async _authThenStart(): Promise<void> {
@@ -194,9 +150,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     }
 
     return await this._startOrAuthSse({
-      resumptionToken: this._lastEventId,
-      onresumptiontoken: this._onresumptiontoken,
-      replayMessageId: this._replayMessageId,
+      resumptionToken: undefined,
     })
   }
 
@@ -220,108 +174,79 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {
     const { resumptionToken, onresumptiontoken, replayMessageId } = options
 
-    // Store these for potential reconnection
-    this._lastEventId = resumptionToken
-    this._onresumptiontoken = onresumptiontoken
-    this._replayMessageId = replayMessageId
+    const headers = await this._commonHeaders()
 
-    return new Promise<void>((resolve, reject) => {
-      this._commonHeaders()
-        .then((headers) => {
-          // Create options for SSE connection
-          const sseOptions = {
-            ...this._eventSourceInit,
-            headers: {
-              ...headers,
-              'Content-Type': 'application/json',
-              Accept: 'application/json, text/event-stream',
-              ...(this._eventSourceInit?.headers || {}),
-            },
-            start: false,
-            method: 'GET',
+    // Create options for SSE connection
+    const sseOptions = {
+      ...this._eventSourceInit,
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        ...(this._eventSourceInit?.headers || {}),
+      },
+      start: false,
+      method: 'GET',
+    }
+
+    // If we have a resumption token, add it as Last-Event-ID
+    if (resumptionToken) {
+      sseOptions.headers['Last-Event-ID'] = resumptionToken
+    }
+
+    // Create the SSE connection
+    this._sseConnection = new SSE(this._url.href, sseOptions)
+
+    // Handle errors
+    this._sseConnection.onerror = (event: SseErrorEvent) => {
+      // Check for auth errors (401)
+      if (event.status === 401 && this._authProvider) {
+        this._authThenStart()
+        return
+      }
+
+      // For 405, the server doesn't support SSE on GET - this is valid according to spec
+      if (event.status === 405) {
+        return
+      }
+
+      const error = new StreamableHTTPError(event.status, event.data)
+
+      this.onerror?.(error)
+
+      if (this._sseConnection) {
+        this._sseConnection.close()
+        this._sseConnection = null
+      }
+    }
+
+    // Handle JSON-RPC messages
+    this._sseConnection.addEventListener(
+      'message',
+      (event: { data: string; id?: string }) => {
+        try {
+          const parsed = JSON.parse(event.data)
+          const message = JSONRPCMessageSchema.parse(parsed)
+
+          // Apply replay message ID if needed
+          if (replayMessageId !== undefined && isJSONRPCResponse(message)) {
+            message.id = replayMessageId
           }
 
-          // If we have a resumption token, add it as Last-Event-ID
-          if (resumptionToken) {
-            sseOptions.headers['Last-Event-ID'] = resumptionToken
-          }
-
-          // Create the SSE connection
-          this._sseConnection = new SSE(this._url.href, sseOptions)
-
-          // Handle errors
-          this._sseConnection.onerror = (event: SseErrorEvent) => {
-            // Check for auth errors (401)
-            if (event.status === 401 && this._authProvider) {
-              this._authThenStart().then(resolve, reject)
-              return
-            }
-
-            // For 405, the server doesn't support SSE on GET - this is valid according to spec
-            if (event.status === 405) {
-              resolve()
-              return
-            }
-
-            const error = new StreamableHTTPError(event.status, event.data)
-
-            this.onerror?.(error)
-
-            if (this._sseConnection) {
-              this._sseConnection.close()
-              this._sseConnection = null
-            }
-
-            reject(error)
-          }
-
-          // Handle SSE connection closure
-          // this._sseConnection.onreadystatechange = ({
-          //   readyState,
-          // }: {
-          //   readyState: number
-          // }) => {
-          //   if (readyState === 2) this.onsseclose?.()
-          // }
-
-          // Handle JSON-RPC messages
-          this._sseConnection.addEventListener(
-            'message',
-            (event: { data: string; lastEventId?: string }) => {
-              try {
-                const parsed = JSON.parse(event.data)
-                const message = JSONRPCMessageSchema.parse(parsed)
-
-                // Apply replay message ID if needed
-                if (
-                  replayMessageId !== undefined &&
-                  isJSONRPCResponse(message)
-                ) {
-                  message.id = replayMessageId
-                }
-
-                if (this.onmessage) this.onmessage(message)
-              } catch (error) {
-                if (this.onerror) this.onerror(error as Error)
-              }
-
-              // Update last event ID if present and call callback
-              if (event.lastEventId) {
-                this._lastEventId = event.lastEventId
-                if (onresumptiontoken) onresumptiontoken(event.lastEventId)
-              }
-            },
-          )
-
-          // Start the connection
-          this._sseConnection.stream()
-          resolve()
-        })
-        .catch((error) => {
-          reject(error)
+          if (this.onmessage) this.onmessage(message)
+        } catch (error) {
           if (this.onerror) this.onerror(error as Error)
-        })
-    })
+        }
+
+        // Update last event ID if present and call callback
+        if (event.id) {
+          if (onresumptiontoken) onresumptiontoken(event.id)
+        }
+      },
+    )
+
+    // Start the connection
+    this._sseConnection.stream()
   }
 
   async start(): Promise<void> {
@@ -366,13 +291,11 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
   async send(
     message: JSONRPCMessage | JSONRPCMessage[],
-    options?: {
-      resumptionToken?: string
-      onresumptiontoken?: (token: string) => void
-    },
+    options?: StartSSEOptions,
   ): Promise<void> {
     try {
-      const { resumptionToken, onresumptiontoken } = options || {}
+      const { resumptionToken, replayMessageId, onresumptiontoken } =
+        options || {}
 
       if (resumptionToken) {
         // If we have a resumption token, we need to reconnect the SSE stream
@@ -385,7 +308,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
       }
 
       const headers = await this._commonHeaders()
-      
+
       // Get original message(s) for detecting request IDs
       const messages = Array.isArray(message) ? message : [message]
       const hasRequests = messages.some((msg) => isJSONRPCRequest(msg))
@@ -397,7 +320,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
           headers: {
             ...headers,
             'Content-Type': 'application/json',
-            'Accept': 'application/json, text/event-stream',
+            Accept: 'application/json, text/event-stream',
           },
           method: 'POST',
           payload: JSON.stringify(message),
@@ -411,39 +334,37 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         sseResponse.onerror = (event: SseErrorEvent) => {
           // Check for auth errors (401)
           if (event.status === 401 && this._authProvider) {
-            this._authThenStart().then(() => {
-              // Retry the send after successful auth
-              this.send(message, options);
-            }, (err) => this.onerror?.(err));
-            return;
+            this._authThenStart().then(
+              () => {
+                // Retry the send after successful auth
+                this.send(message, options)
+              },
+              (err) => this.onerror?.(err),
+            )
+            return
           }
 
-          const error = new StreamableHTTPError(event.status, event.data);
-          this.onerror?.(error);
-        };
-
-        // sseResponse.onreadystatechange = (event: any) => {
-        //   if (event.readyState === 2) this.onsseclose?.()
-        // }
+          const error = new StreamableHTTPError(event.status, event.data)
+          this.onerror?.(error)
+        }
 
         // Process message events
         sseResponse.addEventListener(
           'message',
-          (event: { data: string; lastEventId?: string }) => {
+          (event: { data: string; id?: string }) => {
             try {
               const parsed = JSON.parse(event.data)
               const message = JSONRPCMessageSchema.parse(parsed)
               this.onmessage?.(message)
-
-              // Update last event ID if present and call callback
-              if (event.lastEventId) {
-                this._lastEventId = event.lastEventId
-                if (onresumptiontoken) onresumptiontoken(event.lastEventId)
-              }
             } catch (error) {
               this.onerror?.(error as Error)
             }
-          }
+
+            // Update last event ID if present and call callback
+            if (event.id) {
+              if (onresumptiontoken) onresumptiontoken(event.id)
+            }
+          },
         )
 
         // Extract session ID from headers, if available
@@ -455,7 +376,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
             if (sessionId) {
               this._sessionId = sessionId
             }
-            
+
             // If the initialized notification was accepted, start the SSE stream
             if (xhr?.responseCode === 202) {
               this._startOrAuthSse({
@@ -467,7 +388,6 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         })
 
         sseResponse.stream()
-        return
       }
     } catch (error) {
       this.onerror?.(error as Error)
