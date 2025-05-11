@@ -8,7 +8,8 @@ import {
 } from '@modelcontextprotocol/sdk/client/auth.js'
 
 export interface SseErrorEvent {
-  status?: number
+  code?: number
+  responseCode?: number
   data?: string
 }
 
@@ -18,7 +19,7 @@ export class SseError extends Error {
 
   constructor(message: string, event?: SseErrorEvent) {
     super(`SSE error: ${message}`)
-    this.code = event?.status
+    this.code = event?.responseCode || event?.code
     this.event = event
   }
 }
@@ -135,7 +136,10 @@ export class SSEJSClientTransport {
           if (this._sseConnection) {
             this._sseConnection.onerror = (event: SseErrorEvent) => {
               // Check for auth errors (401)
-              if (event.status === 401 && this._authProvider) {
+              if (
+                (event.responseCode || event.code) === 401 &&
+                this._authProvider
+              ) {
                 this._authThenStart().then(resolve, reject)
                 return
               }

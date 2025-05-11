@@ -2548,6 +2548,13 @@ eventsource@^3.0.2:
   dependencies:
     eventsource-parser "^3.0.1"
 
+eventsource@^3.0.7:
+  version "3.0.7"
+  resolved "https://registry.yarnpkg.com/eventsource/-/eventsource-3.0.7.tgz#1157622e2f5377bb6aef2114372728ba0c156989"
+  integrity sha512-CRT1WTyuQoD771GW56XEZFQ/ZoSfWid1alKGDYMmkt2yl8UXrVR4pspqWNEcqKvVIzg6PAltWjxcSSPrboA4iA==
+  dependencies:
+    eventsource-parser "^3.0.1"
+
 execa@8.0.0:
   version "8.0.0"
   resolved "https://registry.yarnpkg.com/execa/-/execa-8.0.0.tgz#bed67705f9966469cd93e521617868c52a4df6e8"

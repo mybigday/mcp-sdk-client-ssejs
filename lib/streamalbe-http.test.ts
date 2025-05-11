@@ -1,12 +1,12 @@
 import {
   SSEJSStreamableHTTPClientTransport,
   SSEJSStreamableHTTPReconnectionOptions,
-} from './streamable-http.js'
+} from './streamable-http'
 import {
   OAuthClientProvider,
   UnauthorizedError,
-} from '@modelcontextprotocol/sdk/client/auth.js'
-import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
+} from '@modelcontextprotocol/sdk/client/auth'
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types'
 // @ts-ignore
 import { XMLHttpRequest } from 'xhr2'
 
