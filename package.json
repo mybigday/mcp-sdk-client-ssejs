@@ -1,7 +1,7 @@
 {
   "name": "mcp-sdk-client-ssejs",
   "access": "public",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Client transport alternative of @modelcontextprotocol/sdk/client base on sse.js. The main purpose is make it working on React Native with llama.rn.",
   "main": "lib/index.js",
   "scripts": {
