@@ -15,7 +15,7 @@ import {
 } from '@modelcontextprotocol/sdk/client/auth.js'
 
 // Default reconnection options for StreamableHTTP connections
-const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions =
+const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: SSEJSStreamableHTTPReconnectionOptions =
   {
     initialReconnectionDelay: 1000,
     maxReconnectionDelay: 30000,
@@ -60,7 +60,7 @@ interface StartSSEOptions {
 /**
  * Configuration options for reconnection behavior of the SSEJSStreamableHTTPClientTransport.
  */
-export interface StreamableHTTPReconnectionOptions {
+export interface SSEJSStreamableHTTPReconnectionOptions {
   /**
    * Maximum backoff time between reconnection attempts in milliseconds.
    * Default is 30000 (30 seconds).
@@ -131,7 +131,7 @@ export interface SSEJSStreamableHTTPClientTransportOptions {
   /**
    * Options to configure the reconnection behavior.
    */
-  reconnectionOptions?: StreamableHTTPReconnectionOptions
+  reconnectionOptions?: SSEJSStreamableHTTPReconnectionOptions
 
   /**
    * Session ID for the connection. This is used to identify the session on the server.
@@ -158,7 +158,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   private _requestInit?: RequestInit
   private _authProvider?: OAuthClientProvider
   private _sessionId?: string
-  private _reconnectionOptions: StreamableHTTPReconnectionOptions
+  private _reconnectionOptions: SSEJSStreamableHTTPReconnectionOptions
   private _fetch: typeof globalThis.fetch
   private _URL: typeof globalThis.URL | any
   private _eventSourceInit?: Record<string, any>
