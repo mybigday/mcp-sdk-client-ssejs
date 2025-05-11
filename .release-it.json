@@ -2,12 +2,12 @@
   "$schema": "https://unpkg.com/release-it@17/schema/release-it.json",
   "git": {
     "commitMessage": "chore: release v${version}",
-    "requireCleanWorkingDir": false
+    "requireCleanWorkingDir": true
   },
   "github": {
     "release": true
   },
   "npm": {
-    "publish": false
+    "publish": true
   }
 }
