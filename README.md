@@ -4,7 +4,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm](https://img.shields.io/npm/v/mcp-sdk-client-ssejs.svg)](https://www.npmjs.com/package/mcp-sdk-client-ssejs/)
 
-Alternative [@modelcontextprotocol/sdk/client](https://www.npmjs.com/package/@modelcontextprotocol/sdk#writing-mcp-clients) base on [sse.js](https://www.npmjs.com/package/sse.js). The main purpose is make it working on React Native with [llama.rn](https://github.com/mybigday/llama.rn).
+Client transport alternative of [@modelcontextprotocol/sdk/client](https://www.npmjs.com/package/@modelcontextprotocol/sdk#writing-mcp-clients) base on [sse.js](https://www.npmjs.com/package/sse.js). The main purpose is make it working on React Native with [llama.rn](https://github.com/mybigday/llama.rn).
+
+Supports:
+- Streamable HTTP
+- SSE
 
 ## Installation
 
@@ -14,13 +18,15 @@ npm install mcp-sdk-client-ssejs
 
 ## Usage
 
-The usage is the most same as the original [@modelcontextprotocol/sdk/client](https://github.com/modelcontextprotocol/typescript-sdk?tab=readme-ov-file#writing-mcp-clients), but you need to use `SSEJSClientTransport` instead of `StdioClientTransport` or `SSEClientTransport`. (There are no STDIO support in this package.)
+The usage is the most same as the original [@modelcontextprotocol/sdk/client](https://github.com/modelcontextprotocol/typescript-sdk?tab=readme-ov-file#writing-mcp-clients), but you need to use `SSEJSStreamableHTTPClientTransport` or `SSEJSClientTransport` instead of `StreamableHTTPClientTransport` or `SSEClientTransport`. (There are no STDIO support in this package.)
+
+### SSEJSStreamableHTTPClientTransport
 
 ```ts
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { SSEJSClientTransport } from 'mcp-sdk-client-ssejs'
+import { SSEJSStreamableHTTPClientTransport } from 'mcp-sdk-client-ssejs'
 
-const transport = new SSEJSClientTransport({
+const transport = new SSEJSStreamableHTTPClientTransport({
   url: 'http://<your-mcp-server-sse-endpoint-url>',
 })
 
@@ -59,21 +65,49 @@ const result = await client.callTool({
 })
 ```
 
+### SSEJSClientTransport
+
+```ts
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { SSEJSClientTransport } from 'mcp-sdk-client-ssejs'
+
+const transport = new SSEJSClientTransport({
+  url: 'http://<your-mcp-server-sse-endpoint-url>',
+})
+
+const client = new Client({
+  name: 'example-client',
+  version: '1.0.0',
+})
+
+await client.connect(transport)
+
+// Usage is the same as with SSEJSStreamableHTTPClientTransport
+```
+
 ## Use fetch / URL as optional parameters
 
-The SSEJSClientTransport constructor accept `URL` and `fetch` options.
+Both transport options accept `URL` and `fetch` options.
 
 ```js
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { SSEJSClientTransport } from 'mcp-sdk-client-ssejs'
+import { SSEJSStreamableHTTPClientTransport, SSEJSClientTransport } from 'mcp-sdk-client-ssejs'
 
 // Example: Use whatwg-url-without-unicode
 import { URL } from 'whatwg-url-without-unicode'
 
-const transport = new SSEJSClientTransport({
+// For SSEJSStreamableHTTPClientTransport
+const streamableTransport = new SSEJSStreamableHTTPClientTransport({
   url: 'http://<your-mcp-server-sse-endpoint-url>',
   URL,
   // Example: Custom fetch implementation
+  fetch: (...args) => fetch(...args),
+})
+
+// Or for SSEJSClientTransport
+const transport = new SSEJSClientTransport({
+  url: 'http://<your-mcp-server-sse-endpoint-url>',
+  URL,
   fetch: (...args) => fetch(...args),
 })
 ```
