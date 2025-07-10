@@ -87,8 +87,8 @@ export interface SSEJSStreamableHTTPReconnectionOptions {
 }
 
 export interface SseErrorEvent {
-  status?: number
   data?: string
+  responseCode?: number
 }
 
 /**
@@ -305,17 +305,17 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     // Handle errors
     this._sseConnection.onerror = (event: SseErrorEvent) => {
       // Check for auth errors (401)
-      if (event.status === 401 && this._authProvider) {
+      if (event.responseCode === 401 && this._authProvider) {
         this._authThenStart()
         return
       }
 
       // For 405, the server doesn't support SSE on GET - this is valid according to spec
-      if (event.status === 405) {
+      if (event.responseCode === 405) {
         return
       }
 
-      const error = new StreamableHTTPError(event.status, event.data)
+      const error = new StreamableHTTPError(event.responseCode, event.data)
 
       this.onerror?.(error)
 
@@ -477,7 +477,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         // Handle errors
         this._sseResponse.onerror = (event: SseErrorEvent) => {
           // Check for auth errors (401)
-          if (event.status === 401 && this._authProvider) {
+          if (event.responseCode === 401 && this._authProvider) {
             this._authThenStart().then(
               () => {
                 // Retry the send after successful auth
@@ -488,7 +488,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
             return
           }
 
-          const error = new StreamableHTTPError(event.status, event.data)
+          const error = new StreamableHTTPError(event.responseCode, event.data)
           this.onerror?.(error)
 
           if (this._abortController && !this._abortController.signal.aborted) {
