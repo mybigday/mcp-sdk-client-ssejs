@@ -166,7 +166,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   onclose?: () => void
   onerror?: (error: Error) => void
   onmessage?: (message: JSONRPCMessage) => void
-  onsseclose?: () => void
+  onsseclose?: (noGetSupport: boolean) => void
 
   constructor(url: URL, opts?: SSEJSStreamableHTTPClientTransportOptions) {
     this._url = url
@@ -302,6 +302,8 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     let started = false
     let lastEventId: string | undefined
 
+    let noGetSupport = false
+
     // Handle errors
     this._sseConnection.onerror = (event: SseErrorEvent) => {
       // Check for auth errors (401)
@@ -312,6 +314,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
 
       // For 405, the server doesn't support SSE on GET - this is valid according to spec
       if (event.responseCode === 405) {
+        noGetSupport = true
         return
       }
 
@@ -349,7 +352,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     }
 
     this._sseConnection.onreadystatechange = (event) => {
-      if (event.readyState === 2) this.onsseclose?.()
+      if (event.readyState === 2) this.onsseclose?.(noGetSupport)
     };
 
     // Handle JSON-RPC messages
