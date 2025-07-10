@@ -59,7 +59,7 @@
     "xhr2": "^0.2.1"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.11.0",
+    "@modelcontextprotocol/sdk": "^1.15.0",
     "sse.js": "^2.6.0"
   },
   "prettier": {
