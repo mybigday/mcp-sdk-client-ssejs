@@ -119,19 +119,23 @@ import { SSEJSStreamableHTTPClientTransport, SSEJSClientTransport } from 'mcp-sd
 import { URL } from 'whatwg-url-without-unicode'
 
 // For SSEJSStreamableHTTPClientTransport
-const streamableTransport = new SSEJSStreamableHTTPClientTransport({
-  url: 'http://<your-mcp-server-sse-endpoint-url>',
-  URL,
-  // Example: Custom fetch implementation
-  fetch: (...args) => fetch(...args),
-})
+const streamableTransport = new SSEJSStreamableHTTPClientTransport(
+  'http://<your-mcp-server-sse-endpoint-url>'
+  {
+    URL,
+    // Example: Custom fetch implementation
+    fetch: (...args) => fetch(...args),
+  },
+)
 
 // Or for SSEJSClientTransport
-const transport = new SSEJSClientTransport({
-  url: 'http://<your-mcp-server-sse-endpoint-url>',
-  URL,
-  fetch: (...args) => fetch(...args),
-})
+const transport = new SSEJSClientTransport(
+  'http://<your-mcp-server-sse-endpoint-url>',
+  {
+    URL,
+    fetch: (...args) => fetch(...args),
+  },
+)
 ```
 
 ## Use cases
