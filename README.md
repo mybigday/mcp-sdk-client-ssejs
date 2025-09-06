@@ -13,7 +13,27 @@ Supports:
 ## Installation
 
 ```bash
+npm install @modelcontextprotocol/sdk
 npm install mcp-sdk-client-ssejs
+```
+
+- For use `@modelcontextprotocol/sdk` in React Native, you may need enable `unstable_enablePackageExports: true` in the project's metro config.
+- Or you can try to use `babel-plugin-module-resolver` to alias the `@modelcontextprotocol/sdk` to `@modelcontextprotocol/sdk/dist/esm` in babel config:
+```js
+module.exports = {
+  presets: [/* ... */],
+  plugins: [
+    // ...
+    [
+      'module-resolver',
+      {
+        alias: {
+          '@modelcontextprotocol/sdk': '@modelcontextprotocol/sdk/dist/esm',
+        },
+      },
+    ],
+  ],
+}
 ```
 
 ## Usage
