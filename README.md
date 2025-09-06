@@ -46,9 +46,10 @@ The usage is the most same as the original [@modelcontextprotocol/sdk/client](ht
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { SSEJSStreamableHTTPClientTransport } from 'mcp-sdk-client-ssejs'
 
-const transport = new SSEJSStreamableHTTPClientTransport({
-  url: 'http://<your-mcp-server-sse-endpoint-url>',
-})
+const transport = new SSEJSStreamableHTTPClientTransport(
+  'http://<your-mcp-server-sse-endpoint-url>', 
+  { /* TransportOptions */ },
+)
 
 const client = new Client({
   name: 'example-client',
@@ -91,9 +92,10 @@ const result = await client.callTool({
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { SSEJSClientTransport } from 'mcp-sdk-client-ssejs'
 
-const transport = new SSEJSClientTransport({
-  url: 'http://<your-mcp-server-sse-endpoint-url>',
-})
+const transport = new SSEJSClientTransport(
+  'http://<your-mcp-server-sse-endpoint-url>',
+  { /* TransportOptions */ },
+)
 
 const client = new Client({
   name: 'example-client',
