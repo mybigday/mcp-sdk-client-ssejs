@@ -36,6 +36,17 @@ module.exports = {
 }
 ```
 
+If `CustomEvent` is missing in the React Native environment, you may need to add a polyfill for it, you can try our approach:
+```js
+import NativeCustomEvent from 'react-native/Libraries/Events/CustomEvent'
+
+window.CustomEvent = class CustomEvent extends NativeCustomEvent {
+  constructor(type, eventInitDict = {}) {
+    super(type, eventInitDict)
+  }
+}
+```
+
 ## Usage
 
 The usage is the most same as the original [@modelcontextprotocol/sdk/client](https://github.com/modelcontextprotocol/typescript-sdk?tab=readme-ov-file#writing-mcp-clients), but you need to use `SSEJSStreamableHTTPClientTransport` or `SSEJSClientTransport` instead of `StreamableHTTPClientTransport` or `SSEClientTransport`. (There are no STDIO support in this package.)
