@@ -4,15 +4,14 @@ import {
   isInitializedNotification,
   isJSONRPCRequest,
   isJSONRPCResponse,
-  JSONRPCMessage,
   JSONRPCMessageSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 import {
   auth,
-  AuthResult,
-  OAuthClientProvider,
   UnauthorizedError,
 } from '@modelcontextprotocol/sdk/client/auth.js'
+import type { AuthResult, OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: SSEJSStreamableHTTPReconnectionOptions =
@@ -121,7 +120,7 @@ export interface SSEJSStreamableHTTPClientTransportOptions {
    * Custom implementation of URL to use.
    * This allows using a custom URL implementation in environments where the global URL is not available or needs to be customized.
    */
-  URL?: typeof globalThis.URL | any
+  URL?: typeof URL | any
 
   /**
    * Customizes HTTP requests to the server.
@@ -160,7 +159,6 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
   private _sessionId?: string
   private _reconnectionOptions: SSEJSStreamableHTTPReconnectionOptions
   private _fetch: typeof globalThis.fetch
-  private _URL: typeof globalThis.URL | any
   private _eventSourceInit?: Record<string, any>
 
   onclose?: () => void
@@ -176,7 +174,6 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
     this._reconnectionOptions =
       opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS
     this._fetch = opts?.fetch || globalThis.fetch
-    this._URL = opts?.URL || globalThis.URL
     this._eventSourceInit = opts?.eventSourceInit
   }
 
@@ -587,7 +584,7 @@ export class SSEJSStreamableHTTPClientTransport implements Transport {
         signal: this._abortController?.signal,
       }
 
-      const response = await this._fetch(this._url, init)
+      const response = await this._fetch(this._url.toString(), init)
 
       // We specifically handle 405 as a valid response according to the spec,
       // meaning the server does not support explicit session termination

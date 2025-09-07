@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 import { SSE } from 'sse.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -30,7 +31,7 @@ interface EventSourceInitWithHeaders {
 }
 
 interface TransportOptions {
-  URL?: typeof globalThis.URL
+  URL?: typeof URL
   fetch?: typeof globalThis.fetch
   eventSourceInit?: EventSourceInitWithHeaders
   requestInit?: RequestInit
@@ -45,7 +46,7 @@ type AuthResult = 'AUTHORIZED' | string
  *
  * Based on sse.js for React Native support.
  */
-export class SSEJSClientTransport {
+export class SSEJSClientTransport implements Transport {
   private _url: URL
   private _sseConnection: SSE | null
   private _endpoint: URL | globalThis.URL | null
@@ -54,11 +55,11 @@ export class SSEJSClientTransport {
   private _requestInit?: RequestInit
   private _authProvider?: OAuthClientProvider
   private _fetch: typeof globalThis.fetch
-  private _URL: typeof globalThis.URL | any // can be whatwg-url-without-unicode
+  private _URL: typeof URL | any // can be whatwg-url-without-unicode
 
-  public onclose: (() => void) | null
-  public onerror: ((error: Error) => void) | null
-  public onmessage: ((message: any) => void) | null
+  public onclose: (() => void) | undefined
+  public onerror: ((error: Error) => void) | undefined
+  public onmessage: ((message: any) => void) | undefined
   public onsseclose: (() => void) | null
 
   constructor(url: URL, opts: TransportOptions = {}) {
@@ -70,11 +71,11 @@ export class SSEJSClientTransport {
     this._requestInit = opts.requestInit
     this._authProvider = opts.authProvider
     this._fetch = opts.fetch || globalThis.fetch
-    this._URL = opts.URL || globalThis.URL
+    this._URL = opts.URL || URL
 
-    this.onclose = null
-    this.onerror = null
-    this.onmessage = null
+    this.onclose = undefined
+    this.onerror = undefined
+    this.onmessage = undefined
 
     this.onsseclose = null
   }
@@ -270,7 +271,7 @@ export class SSEJSClientTransport {
         signal: this._abortController?.signal,
       }
 
-      const response = await this._fetch(this._endpoint, init)
+      const response = await this._fetch(this._endpoint.toString(), init)
       if (!response.ok) {
         if (response.status === 401 && this._authProvider) {
           const result = await auth(this._authProvider, {

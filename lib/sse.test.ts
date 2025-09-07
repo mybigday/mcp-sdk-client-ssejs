@@ -311,7 +311,7 @@ describe('SSEJSClientTransport', () => {
 
         // Verify fetch was called with correct headers
         expect(mockFetch).toHaveBeenCalledWith(
-          expect.any(URL),
+          expect.stringContaining(baseUrl.href),
           expect.objectContaining({
             headers: expect.any(Headers),
           }),
