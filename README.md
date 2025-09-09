@@ -153,6 +153,8 @@ const transport = new SSEJSClientTransport(
 
 - [BRICKS](https://bricks.tools) - Our product for building interactive signage in simple way. We provide AI functions as Generator LLM/Assistant/MCP/MCPServer.
   - The Generator MCP (Client) is based on this package.
+- [llama.rn/example](https://github.com/mybigday/llama.rn/tree/main/example) - llama.rn example app
+  - Please see `Tool Calling & MCP` example.
 
 ## License
 
